@@ -60,7 +60,7 @@
                         <!-- Default configuration for running with: mvn clean javafx:run -->
                         <id>default-cli</id>
                         <configuration>
-                            <mainClass>org.unibl.etf.pj2.transport/org.unibl.etf.pj2.transport.HelloApplication
+                            <mainClass>org.unibl.etf.pj2.transport/org.unibl.etf.pj2.transport.gui.HelloApplication
                             </mainClass>
                         </configuration>
                     </execution>

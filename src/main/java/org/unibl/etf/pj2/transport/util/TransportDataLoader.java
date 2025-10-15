@@ -8,7 +8,7 @@ import java.io.IOException;
 
 public class TransportDataLoader {
 
-    public static TransportDataGenerator.TransportData load(String filePath) {
+    public static TransportDataGenerator.TransportData  load(String filePath) {
         Gson gson = new Gson();
         try (JsonReader reader = new JsonReader(new FileReader(filePath))) {
             return gson.fromJson(reader, TransportDataGenerator.TransportData.class);

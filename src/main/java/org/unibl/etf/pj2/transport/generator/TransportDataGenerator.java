@@ -29,6 +29,15 @@ public class TransportDataGenerator {
         public String city;
         public String busStation;
         public String trainStation;
+
+        public Station() {
+        }
+
+        public Station(String city, String busStation, String trainStation) {
+            this.city = city;
+            this.busStation = busStation;
+            this.trainStation = trainStation;
+        }
     }
 
     public static class Departure {
@@ -40,6 +49,20 @@ public class TransportDataGenerator {
         public int duration; // u minutama
         public int price;
         public int minTransferTime; // u minutama
+
+        public Departure() {
+        }
+
+        public Departure(String type, String from, String to, String departureTime, String arrivalTime, int duration, int price, int minTransferTime) {
+            this.type = type;
+            this.from = from;
+            this.to = to;
+            this.departureTime = departureTime;
+            this.arrivalTime = arrivalTime;
+            this.duration = duration;
+            this.price = price;
+            this.minTransferTime = minTransferTime;
+        }
     }
 
     // ------------------ GENERISANJE PODATAKA ------------------
@@ -65,10 +88,11 @@ public class TransportDataGenerator {
         List<Station> stations = new ArrayList<>();
         for (int x = 0; x < rows; x++) {
             for (int y = 0; y < columns; y++) {
-                Station station = new Station();
-                station.city = "G_" + x + "_" + y;
-                station.busStation = "A_" + x + "_" + y;
-                station.trainStation = "Z_" + x + "_" + y;
+                String city = "G_" + x + "_" + y;
+                String busStation = "A_" + x + "_" + y;
+                String trainStation = "Z_" + x + "_" + y;
+                Station station = new Station(city, busStation, trainStation);
+
                 stations.add(station);
             }
         }

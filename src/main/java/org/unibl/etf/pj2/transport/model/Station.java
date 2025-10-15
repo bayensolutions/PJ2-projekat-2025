@@ -1,6 +1,4 @@
-package org.unibl.etf.pj2.transport.station;
-
-import org.unibl.etf.pj2.transport.schedule.Departure;
+package org.unibl.etf.pj2.transport.model;
 
 import java.util.ArrayList;
 import java.util.List;

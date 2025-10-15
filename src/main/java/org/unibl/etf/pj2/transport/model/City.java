@@ -1,6 +1,6 @@
-package org.unibl.etf.pj2.transport.country;
+package org.unibl.etf.pj2.transport.model;
 
-import org.unibl.etf.pj2.transport.station.Station;
+import org.unibl.etf.pj2.transport.model.Station;
 
 public class City {
     private String name;

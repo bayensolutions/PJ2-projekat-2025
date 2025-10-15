@@ -1,12 +1,12 @@
-package org.unibl.etf.pj2.transport.schedule;
+package org.unibl.etf.pj2.transport.model;
 
 import java.time.LocalDateTime;
 
 public class Departure {
-    private LocalDateTime departureTime;
-    private LocalDateTime arrivalTime;
-    private double price;
-    private int minWaitingTime;
+    private final LocalDateTime departureTime;
+    private final LocalDateTime arrivalTime;
+    private final double price;
+    private final int minWaitingTime;
 
     public Departure(LocalDateTime departureTime, LocalDateTime arrivalTime, double price, int minWaitingTime) {
         this.departureTime = departureTime;

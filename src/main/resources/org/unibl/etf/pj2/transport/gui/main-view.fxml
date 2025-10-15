@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.canvas.Canvas?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<VBox xmlns="http://javafx.com/javafx/11.0.2"
+      xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="org.unibl.etf.pj2.transport.gui.MainController"
+      spacing="10">
+
+    <padding>
+        <Insets top="10" right="10" bottom="10" left="10"/>
+    </padding>
+
+    <HBox spacing="10">
+        <ComboBox fx:id="comboStart" promptText="Start point"/>
+        <ComboBox fx:id="comboDestination" promptText="Destination"/>
+        <ComboBox fx:id="comboCriteria" promptText="Criteria"/>
+        <Button text="Find Route" onAction="#findRoute"/>
+    </HBox>
+
+    <Canvas fx:id="mapCanvas" width="600" height="400"/>
+
+    <TableView fx:id="routeTable" prefHeight="200">
+        <columns>
+            <TableColumn fx:id="colTransport" text="Transport"/>
+            <TableColumn fx:id="colStart" text="Start"/>
+            <TableColumn fx:id="colDestination" text="Destination"/>
+            <TableColumn fx:id="colTime" text="Time"/>
+            <TableColumn fx:id="colPrice" text="Price"/>
+        </columns>
+    </TableView>
+
+    <HBox spacing="10">
+        <Button text="Show Additional Routes" onAction="#showAdditionalRoutes"/>
+        <Button text="Buy Ticket" onAction="#buyTicket"/>
+    </HBox>
+</VBox>

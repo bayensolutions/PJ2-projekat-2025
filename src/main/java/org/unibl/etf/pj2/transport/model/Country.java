@@ -1,4 +1,6 @@
-package org.unibl.etf.pj2.transport.country;
+package org.unibl.etf.pj2.transport.model;
+
+import org.unibl.etf.pj2.transport.model.City;
 
 public class Country {
 
