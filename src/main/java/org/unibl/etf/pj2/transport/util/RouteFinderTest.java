@@ -4,37 +4,44 @@ import org.unibl.etf.pj2.transport.generator.TransportDataGenerator;
 import java.util.List;
 
 public class RouteFinderTest {
-    public static void main(String[] args) {
-        // 1️⃣ Učitaj JSON fajl sa putanjama
-        String filePath = "src/main/resources/files/transport_data.json";
-        TransportDataGenerator.TransportData data = TransportDataLoader.load(filePath);
 
+    public static void main(String[] args) {
+        String filePath = "src/main/resources/files/transport_data.json"; // provjeri putanju
+
+        TransportDataGenerator.TransportData data = TransportDataLoader.load(filePath);
         if (data == null) {
-            System.err.println("Greška: nije učitan JSON fajl!");
+            System.err.println("❌ Greška: nije moguće učitati JSON.");
             return;
         }
 
-        System.out.println("✅ JSON uspješno učitan: " + data.departures.size() + " polazaka");
+        System.out.println("✅ JSON uspješno učitan!");
+        System.out.println("Broj gradova: " + data.stations.size());
+        System.out.println("Broj polazaka: " + data.departures.size());
 
-        // 2️⃣ Inicijalizuj finder (koristimo samo BUS linije)
+        TransportGraph graph = new TransportGraph(data.stations, data.departures);
+
         SimpleRouteFinder finder = new SimpleRouteFinder(data.stations, data.departures);
 
-        // 3️⃣ Definiši start i cilj (gradove)
-        String start = "G_0_0";
-        String end = "G_3_2";
+        // Test 1: susjedni gradovi
+        testRoute(finder, "G_0_0", "G_0_1");
 
-        // 4️⃣ Pokreni pretragu po kriterijumu
-        List<SimpleRouteFinder.RouteStep> ruta =
-                finder.findRoute(start, end, SimpleRouteFinder.Criteria.CHEAPEST);
+        // Test 2: udaljeniji gradovi
+        testRoute(finder, "G_0_0", "G_3_3");
 
-        // 5️⃣ Prikaz rezultata
-        if (ruta.isEmpty()) {
-            System.out.println("❌ Nije pronađena nijedna BUS ruta između " + start + " i " + end);
+        // Test 3: vertikalni skok
+        testRoute(finder, "G_0_2", "G_4_2");
+    }
+
+    private static void testRoute(SimpleRouteFinder finder, String from, String to) {
+        System.out.println("\n=== TEST: " + from + " → " + to + " ===");
+        List<SimpleRouteFinder.RouteStep> route = finder.findRoute(from, to, SimpleRouteFinder.Criteria.CHEAPEST);
+
+        if (route.isEmpty()) {
+            System.out.println("⚠️ Nije pronađena nijedna ruta!");
         } else {
-            System.out.println("✅ Pronađena ruta (" + ruta.size() + " koraka):");
-            for (SimpleRouteFinder.RouteStep korak : ruta) {
-                System.out.println("  " + korak);
-            }
+            System.out.println("✅ Ruta pronađena! Segmenti:");
+            for (SimpleRouteFinder.RouteStep s : route)
+                System.out.println("  " + s);
         }
     }
 }

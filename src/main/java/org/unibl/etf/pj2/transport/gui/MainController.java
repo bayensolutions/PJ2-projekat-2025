@@ -8,10 +8,10 @@ import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.*;
 import javafx.scene.paint.Color;
-import org.unibl.etf.pj2.transport.Config;
 import org.unibl.etf.pj2.transport.generator.TransportDataGenerator;
 import org.unibl.etf.pj2.transport.util.SimpleRouteFinder;
 import org.unibl.etf.pj2.transport.util.TransportDataLoader;
+import org.unibl.etf.pj2.transport.util.TransportGraph;
 
 import java.net.URL;
 import java.util.List;
@@ -19,47 +19,28 @@ import java.util.ResourceBundle;
 
 public class MainController implements Initializable {
 
-    @FXML
-    private Canvas mapCanvas;
-
-    @FXML
-    private ComboBox<String> comboStart;
-
-    @FXML
-    private ComboBox<String> comboDestination;
-
-    @FXML
-    private ComboBox<String> comboCriteria;
-
-    @FXML
-    private TableView<SimpleRouteFinder.RouteStep> routeTable;
-
-    @FXML
-    private TableColumn<SimpleRouteFinder.RouteStep, String> colTransport;
-
-    @FXML
-    private TableColumn<SimpleRouteFinder.RouteStep, String> colStart;
-
-    @FXML
-    private TableColumn<SimpleRouteFinder.RouteStep, String> colDestination;
-
-    @FXML
-    private TableColumn<SimpleRouteFinder.RouteStep, String> colTime;
-
-    @FXML
-    private TableColumn<SimpleRouteFinder.RouteStep, Integer> colPrice;
+    @FXML private Canvas mapCanvas;
+    @FXML private ComboBox<String> comboStart;
+    @FXML private ComboBox<String> comboDestination;
+    @FXML private ComboBox<String> comboCriteria;
+    @FXML private TableView<SimpleRouteFinder.RouteStep> routeTable;
+    @FXML private TableColumn<SimpleRouteFinder.RouteStep, String> colTransport;
+    @FXML private TableColumn<SimpleRouteFinder.RouteStep, String> colStart;
+    @FXML private TableColumn<SimpleRouteFinder.RouteStep, String> colDestination;
+    @FXML private TableColumn<SimpleRouteFinder.RouteStep, String> colTime;
+    @FXML private TableColumn<SimpleRouteFinder.RouteStep, Integer> colPrice;
 
     private TransportDataGenerator.TransportData transportData;
     private SimpleRouteFinder.Criteria selectedCriteria = SimpleRouteFinder.Criteria.CHEAPEST;
     private String selectedStartCity = null;
     private String selectedDestinationCity = null;
 
+    private TransportGraph graph; // ➕ Dodato polje grafa
+
     @Override
     public void initialize(URL location, ResourceBundle resources) {
         try {
-            // ✅ Učitavanje JSON fajla pomoću TransportDataLoader
             String filePath = getClass().getResource("/files/transport_data.json").getPath();
-
             transportData = TransportDataLoader.load(filePath);
 
             if (transportData == null || transportData.stations == null || transportData.departures == null) {
@@ -71,7 +52,9 @@ public class MainController implements Initializable {
             System.out.println("Broj gradova: " + transportData.stations.size());
             System.out.println("Broj polazaka: " + transportData.departures.size());
 
-            // Popuni combo boxove sa gradovima
+            // ➕ Kreiraj graf odmah nakon učitavanja
+            graph = new TransportGraph(transportData.stations, transportData.departures);
+
             ObservableList<String> cities = FXCollections.observableArrayList();
             for (TransportDataGenerator.Station s : transportData.stations)
                 if (s != null && s.city != null && !cities.contains(s.city))
@@ -81,7 +64,7 @@ public class MainController implements Initializable {
             comboDestination.setItems(cities);
 
             comboCriteria.setItems(FXCollections.observableArrayList(
-                    "Najjeftinije", "Najbrže", "Najkraće vrijeme transfera"
+                    "Najjeftinije", "Najbrže", "Najmanje presjedanja"
             ));
 
             comboCriteria.setOnAction(e -> {
@@ -102,7 +85,6 @@ public class MainController implements Initializable {
                 redrawMapWithHighlights();
             });
 
-            // Poveži kolone sa modelom
             colTransport.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(c.getValue().type));
             colStart.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(c.getValue().from));
             colDestination.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(c.getValue().to));
@@ -110,7 +92,6 @@ public class MainController implements Initializable {
                     c.getValue().departureTime + " - " + c.getValue().arrivalTime));
             colPrice.setCellValueFactory(c -> new javafx.beans.property.SimpleIntegerProperty(c.getValue().price).asObject());
 
-            // Crtaj mapu
             if (transportData.countryMap != null)
                 drawMap(transportData.countryMap.length, transportData.countryMap[0].length, transportData.countryMap);
 
@@ -120,9 +101,6 @@ public class MainController implements Initializable {
         }
     }
 
-    // =====================================================
-    // PRONALAŽENJE I CRTANJE RUTE
-    // =====================================================
     @FXML
     private void findRoute() {
         if (selectedStartCity == null || selectedDestinationCity == null) {
@@ -135,7 +113,12 @@ public class MainController implements Initializable {
         System.out.println("Cilj: " + selectedDestinationCity);
         System.out.println("Kriterijum: " + selectedCriteria);
 
-        SimpleRouteFinder finder = new SimpleRouteFinder(transportData.stations, transportData.departures);
+        // ✅ Novi konstruktor (sa grafom)
+        SimpleRouteFinder finder = new SimpleRouteFinder(
+                transportData.stations,
+                transportData.departures
+        );
+
         List<SimpleRouteFinder.RouteStep> route = finder.findRoute(selectedStartCity, selectedDestinationCity, selectedCriteria);
 
         if (route.isEmpty()) {
@@ -152,22 +135,16 @@ public class MainController implements Initializable {
 
         ObservableList<SimpleRouteFinder.RouteStep> tableData = FXCollections.observableArrayList(route);
         routeTable.setItems(tableData);
-
         redrawMapWithHighlights(route);
     }
 
-    // =====================================================
-    // CRTANJE MAPE I OZNAČAVANJE GRADOVA
-    // =====================================================
     private void drawMap(int rows, int cols, String[][] countryMap) {
         if (countryMap == null) return;
-
         GraphicsContext gc = mapCanvas.getGraphicsContext2D();
         gc.clearRect(0, 0, mapCanvas.getWidth(), mapCanvas.getHeight());
 
         double cellWidth = mapCanvas.getWidth() / cols;
         double cellHeight = mapCanvas.getHeight() / rows;
-
         gc.setStroke(Color.BLACK);
         gc.setLineWidth(1);
 
@@ -185,13 +162,10 @@ public class MainController implements Initializable {
         }
     }
 
-    private void redrawMapWithHighlights() {
-        redrawMapWithHighlights(null);
-    }
+    private void redrawMapWithHighlights() { redrawMapWithHighlights(null); }
 
     private void redrawMapWithHighlights(List<SimpleRouteFinder.RouteStep> route) {
-        if (transportData == null || transportData.countryMap == null)
-            return;
+        if (transportData == null || transportData.countryMap == null) return;
 
         int rows = transportData.countryMap.length;
         int cols = transportData.countryMap[0].length;
@@ -201,7 +175,6 @@ public class MainController implements Initializable {
         double cellWidth = mapCanvas.getWidth() / cols;
         double cellHeight = mapCanvas.getHeight() / rows;
 
-        // Oboji startni i krajnji grad
         for (int i = 0; i < rows; i++) {
             for (int j = 0; j < cols; j++) {
                 String city = transportData.countryMap[i][j];
@@ -221,7 +194,6 @@ public class MainController implements Initializable {
             }
         }
 
-        // Iscrtavanje zelene linije rute
         if (route != null && !route.isEmpty()) {
             gc.setStroke(Color.GREEN);
             gc.setLineWidth(3);
@@ -245,9 +217,6 @@ public class MainController implements Initializable {
         }
     }
 
-    // =====================================================
-    // POMOĆNE METODE
-    // =====================================================
     private int[] findCityCoords(String city) {
         for (int i = 0; i < transportData.countryMap.length; i++) {
             for (int j = 0; j < transportData.countryMap[i].length; j++) {
@@ -267,13 +236,11 @@ public class MainController implements Initializable {
         return null;
     }
 
-    @FXML
-    private void showAdditionalRoutes() {
+    @FXML private void showAdditionalRoutes() {
         showAlert("Informacija", "Prikaz dodatnih ruta biće implementiran kasnije.");
     }
 
-    @FXML
-    private void buyTicket() {
+    @FXML private void buyTicket() {
         showAlert("Informacija", "Kupovina karte biće implementirana kasnije.");
     }
 

@@ -10,7 +10,7 @@ public class TransportDataGenerator {
 
     private int rows;
     private int columns;
-    private static final int DEPARTURES_PER_STATION = 5;
+    private static final int DEPARTURES_PER_STATION = 20;
     private static final Random random = new Random();
 
     public TransportDataGenerator(int rows, int columns) {
@@ -221,7 +221,7 @@ public class TransportDataGenerator {
 
         TransportDataGenerator generator = new TransportDataGenerator(rows, columns);
         TransportData data = generator.generateData();
-        generator.saveToJson(data, "transport_data.json");
+        generator.saveToJson(data, "src/main/resources/files/transport_data.json");
         System.out.println("Podaci su generisani i sačuvani u transport_data.json (" + rows + "x" + columns + ")");
     }
 }

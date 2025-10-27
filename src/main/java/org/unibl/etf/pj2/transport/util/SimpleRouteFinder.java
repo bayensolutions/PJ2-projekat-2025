@@ -1,11 +1,19 @@
 package org.unibl.etf.pj2.transport.util;
 
 import org.unibl.etf.pj2.transport.generator.TransportDataGenerator;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
- * SimpleRouteFinder - pronalazi optimalnu kombinovanu rutu (BUS + TRAIN)
- * između dva grada koristeći Dijkstrin algoritam.
+ * Pronalazi optimalne rute između gradova koristeći modifikovani Dijkstra algoritam.
+ *
+ * KLJUČNE IZMJENE:
+ * 1. Startno vrijeme = najranije vrijeme u JSON-u
+ * 2. Instant transfer između stanica istog grada (A ↔ Z)
+ * 3. "Opuštena" relaksacija - čuva više putanja da bi uvijek našao rutu
+ * 4. Multi-criteria optimizacija: ako ruta postoji, uvijek će biti pronađena
  */
 public class SimpleRouteFinder {
 
@@ -23,219 +31,262 @@ public class SimpleRouteFinder {
 
         @Override
         public String toString() {
-            return type + " " + from + " → " + to +
-                    " | polazak: " + departureTime +
-                    " | dolazak: " + arrivalTime +
-                    " | trajanje: " + duration + " min" +
-                    " | cijena: " + price;
+            return String.format("%s | %s → %s | %s → %s | %d min | %d KM",
+                    type, from, to, departureTime, arrivalTime, duration, price);
         }
     }
 
-    // ========================= PODACI =========================
+    private static final DateTimeFormatter FMT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
     private final List<TransportDataGenerator.Station> stations;
     private final List<TransportDataGenerator.Departure> departures;
 
-    private final Map<String, List<Edge>> graph = new HashMap<>();
     private final Map<String, String> cityToBus = new HashMap<>();
     private final Map<String, String> cityToTrain = new HashMap<>();
+    private final Map<String, String> stationToCity = new HashMap<>();
+    private final Map<String, List<TransportDataGenerator.Departure>> depsFromStation = new HashMap<>();
+
+    private LocalDateTime earliestTime;
 
     public SimpleRouteFinder(List<TransportDataGenerator.Station> stations,
                              List<TransportDataGenerator.Departure> departures) {
         this.stations = stations;
         this.departures = departures;
-        buildStationMaps();
-        buildGraph();
-        addTransferEdges(); // važno — omogućava prelaz između BUS ↔ TRAIN
-    }
 
-    // ========================= UNUTRAŠNJE KLASE =========================
-    private static class Edge {
-        String to;
-        TransportDataGenerator.Departure departure;
-        int extraCost; // koristi se za transfer
-        Edge(String to, TransportDataGenerator.Departure departure, int extraCost) {
-            this.to = to;
-            this.departure = departure;
-            this.extraCost = extraCost;
-        }
-    }
-
-    private static class Node {
-        String station;
-        Node previous;
-        TransportDataGenerator.Departure departure;
-        int cost;
-        Node(String station, Node previous, TransportDataGenerator.Departure departure, int cost) {
-            this.station = station;
-            this.previous = previous;
-            this.departure = departure;
-            this.cost = cost;
-        }
-    }
-
-    // ========================= GRAFIČKE STRUKTURE =========================
-    private void buildStationMaps() {
         for (TransportDataGenerator.Station s : stations) {
             cityToBus.put(s.city, s.busStation);
             cityToTrain.put(s.city, s.trainStation);
+            stationToCity.put(s.busStation, s.city);
+            stationToCity.put(s.trainStation, s.city);
         }
+
+        for (TransportDataGenerator.Departure d : departures) {
+            depsFromStation.computeIfAbsent(d.from, k -> new ArrayList<>()).add(d);
+        }
+
+        for (List<TransportDataGenerator.Departure> list : depsFromStation.values()) {
+            list.sort(Comparator.comparing(o -> LocalDateTime.parse(o.departureTime, FMT)));
+        }
+
+        earliestTime = departures.stream()
+                .map(d -> LocalDateTime.parse(d.departureTime, FMT))
+                .min(LocalDateTime::compareTo)
+                .orElse(LocalDateTime.now());
+
+        System.out.println("[DEBUG] Najranije vrijeme u JSON-u: " + earliestTime.format(FMT));
     }
 
-    private void buildGraph() {
-        int added = 0;
-        for (TransportDataGenerator.Departure d : departures) {
-            String from = d.from;
-            String to = d.to;
-
-            // ako destinacija je grad (G_*), mapiraj u odgovarajuću stanicu
-            if (to.startsWith("G_")) {
-                String mapped = null;
-                if ("autobus".equalsIgnoreCase(d.type) || "bus".equalsIgnoreCase(d.type)) {
-                    mapped = cityToBus.get(to);
-                } else if ("voz".equalsIgnoreCase(d.type) || "train".equalsIgnoreCase(d.type)) {
-                    mapped = cityToTrain.get(to);
-                }
-                if (mapped != null) {
-                    to = mapped;
-                }
-            }
-
-            if (from != null && to != null) {
-                graph.computeIfAbsent(from, k -> new ArrayList<>())
-                        .add(new Edge(to, d, 0));
-                added++;
-            }
+    public List<RouteStep> findRoute(String startCity, String endCity, Criteria criteria) {
+        if (!cityToBus.containsKey(startCity) || !cityToBus.containsKey(endCity)) {
+            System.err.println("[ERROR] Nepoznat grad: " + startCity + " ili " + endCity);
+            return Collections.emptyList();
         }
-        System.out.println("[DEBUG] Kreiran graf sa " + graph.size() + " čvorova i " + added + " veza.");
+
+        System.out.printf("=== POKRENUT SimpleRouteFinder ===%nStart: %s | Cilj: %s | Kriterijum: %s%n",
+                startCity, endCity, criteria);
+
+        // ✅ KLJUČNA IZMJENA: koristi unified algoritam sa različitim metrikama
+        return findRouteUnified(startCity, endCity, criteria);
     }
 
     /**
-     * Dodaje veze između autobuske i željezničke stanice istog grada
-     * sa cijenom i trajanjem transfera izračunatim iz minTransferTime.
+     * Unified Dijkstra algoritam koji radi za sve kriterijume.
+     * Koristi "visited" set da spreči beskonačne cikluse.
      */
-    private void addTransferEdges() {
-        int added = 0;
-        final int DEFAULT_TRANSFER_TIME = 10; // koristi 10 min ako station nema minTransferTime
+    private List<RouteStep> findRouteUnified(String startCity, String endCity, Criteria criteria) {
+        // Čuva najbolje putanje do svakog čvora (može biti više ako imaju različite kompromise)
+        Map<String, List<Label>> allPaths = new HashMap<>();
+        PriorityQueue<Label> pq = createPriorityQueue(criteria);
+        Set<String> visited = new HashSet<>();
 
-        for (TransportDataGenerator.Station s : stations) {
-            String bus = s.busStation;
-            String train = s.trainStation;
-
-            if (bus != null && train != null) {
-                TransportDataGenerator.Departure transfer = new TransportDataGenerator.Departure(
-                        "TRANSFER", bus, train, "", "", DEFAULT_TRANSFER_TIME, 0, DEFAULT_TRANSFER_TIME);
-                graph.computeIfAbsent(bus, k -> new ArrayList<>())
-                        .add(new Edge(train, transfer, DEFAULT_TRANSFER_TIME));
-                graph.computeIfAbsent(train, k -> new ArrayList<>())
-                        .add(new Edge(bus, transfer, DEFAULT_TRANSFER_TIME));
-                added += 2;
-            }
-        }
-
-        System.out.println("[DEBUG] Dodano " + added + " transfer veza između stanica istog grada.");
-    }
-
-
-    // ========================= DIJKSTRA =========================
-    public List<RouteStep> findRoute(String startCity, String endCity, Criteria criteria) {
         String startBus = cityToBus.get(startCity);
         String startTrain = cityToTrain.get(startCity);
         String endBus = cityToBus.get(endCity);
         String endTrain = cityToTrain.get(endCity);
 
-        if ((startBus == null && startTrain == null) || (endBus == null && endTrain == null)) {
-            System.err.println("Nema stanica za: " + startCity + " ili " + endCity);
-            return Collections.emptyList();
-        }
+        Label lBus = new Label(startBus, earliestTime, 0, 0, null, null);
+        Label lTrain = new Label(startTrain, earliestTime, 0, 0, null, null);
 
-        System.out.println("[DEBUG] Traženje rute od " + startCity + " do " + endCity);
-        System.out.println("[DEBUG] Broj čvorova u grafu: " + graph.size());
+        pq.add(lBus);
+        pq.add(lTrain);
+        allPaths.computeIfAbsent(startBus, k -> new ArrayList<>()).add(lBus);
+        allPaths.computeIfAbsent(startTrain, k -> new ArrayList<>()).add(lTrain);
 
-        PriorityQueue<Node> pq = new PriorityQueue<>(Comparator.comparingInt(n -> n.cost));
-        Map<String, Node> visited = new HashMap<>();
-
-        if (startBus != null) pq.add(new Node(startBus, null, null, 0));
-        if (startTrain != null) pq.add(new Node(startTrain, null, null, 0));
-
-        Set<String> endStations = new HashSet<>();
-        if (endBus != null) endStations.add(endBus);
-        if (endTrain != null) endStations.add(endTrain);
-
-        Node finalNode = null;
-        int iter = 0;
+        Label bestSolution = null;
 
         while (!pq.isEmpty()) {
-            iter++;
-            Node current = pq.poll();
-            if (visited.containsKey(current.station)) continue;
-            visited.put(current.station, current);
+            Label cur = pq.poll();
 
-            System.out.println("[" + iter + "] Obrada čvora: " + current.station + " | cost=" + current.cost);
+            // Ako smo već posjetili ovaj čvor sa boljom metrikama, preskoči
+            String visitKey = cur.node + "_" + cur.arrivalTime.toString();
+            if (visited.contains(visitKey)) continue;
+            visited.add(visitKey);
 
-            if (endStations.contains(current.station)) {
-                finalNode = current;
-                System.out.println("[DEBUG] Stigli do krajnje stanice!");
-                break;
-            }
-
-            List<Edge> edges = graph.getOrDefault(current.station, Collections.emptyList());
-            if (edges.isEmpty()) continue;
-
-            for (Edge e : edges) {
-                if (e.to == null) continue;
-                int cost = current.cost;
-
-                if (e.departure != null && !"TRANSFER".equalsIgnoreCase(e.departure.type)) {
-                    switch (criteria) {
-                        case CHEAPEST:
-                            cost += e.departure.price;
-                            break;
-                        case FASTEST:
-                            cost += e.departure.duration;
-                            break;
-                        case MIN_TRANSFER:
-                            cost += e.departure.minTransferTime;
-                            break;
-                    }
-                } else {
-                    // TRANSFER – penalizuj minimalnim vremenom čekanja
-                    cost += e.extraCost;
+            // Provjeri da li smo stigli do cilja
+            if (cur.node.equals(endBus) || cur.node.equals(endTrain)) {
+                if (bestSolution == null || isBetter(cur, bestSolution, criteria)) {
+                    bestSolution = cur;
                 }
-
-                pq.add(new Node(e.to, current, e.departure, cost));
+                // Nastavi pretragu za bolje alternative (ne prekidaj odmah)
+                continue;
             }
+
+            // Ekspanzija: transfer + polasci
+            expandNode(cur, pq, allPaths, criteria);
         }
 
-        if (finalNode == null) {
-            System.out.println("[DEBUG] Nije pronađena ruta između " + startCity + " i " + endCity);
-            System.out.println("[DEBUG] Posjećeni čvorovi: " + visited.keySet());
+        if (bestSolution == null) {
+            System.out.println("⚠️ Nije pronađena ruta.");
             return Collections.emptyList();
         }
 
-        // ================== REKONSTRUKCIJA ==================
-        System.out.println("[DEBUG] Rekonstrukcija rute...");
-        List<RouteStep> route = new ArrayList<>();
-        Node node = finalNode;
-        while (node != null && node.departure != null) {
-            if (!"TRANSFER".equalsIgnoreCase(node.departure.type)) {
-                RouteStep step = new RouteStep();
-                step.type = node.departure.type;
-                step.from = node.departure.from;
-                step.to = node.departure.to;
-                step.departureTime = node.departure.departureTime;
-                step.arrivalTime = node.departure.arrivalTime;
-                step.duration = node.departure.duration;
-                step.price = node.departure.price;
-                step.minTransferTime = node.departure.minTransferTime;
-                route.add(step);
-            }
-            node = node.previous;
+        return reconstruct(bestSolution);
+    }
+
+    private PriorityQueue<Label> createPriorityQueue(Criteria criteria) {
+        switch (criteria) {
+            case FASTEST:
+                return new PriorityQueue<>(Comparator.comparing(l -> l.arrivalTime));
+            case CHEAPEST:
+                return new PriorityQueue<>(Comparator.comparingInt(l -> l.totalCost));
+            case MIN_TRANSFER:
+                return new PriorityQueue<>(Comparator.comparingInt(l -> l.hops));
+            default:
+                return new PriorityQueue<>(Comparator.comparing(l -> l.arrivalTime));
         }
-        Collections.reverse(route);
+    }
 
-        System.out.println("[DEBUG] Ruta pronađena (" + route.size() + " koraka):");
-        for (RouteStep r : route) System.out.println("    " + r);
+    private boolean isBetter(Label newLabel, Label oldLabel, Criteria criteria) {
+        switch (criteria) {
+            case FASTEST:
+                return newLabel.arrivalTime.isBefore(oldLabel.arrivalTime);
+            case CHEAPEST:
+                return newLabel.totalCost < oldLabel.totalCost;
+            case MIN_TRANSFER:
+                return newLabel.hops < oldLabel.hops;
+            default:
+                return false;
+        }
+    }
 
-        return route;
+    private void expandNode(Label cur, PriorityQueue<Label> pq, Map<String, List<Label>> allPaths, Criteria criteria) {
+        String curCity = stationToCity.get(cur.node);
+
+        // 1. INSTANT TRANSFER između stanica istog grada
+        if (curCity != null) {
+            String otherStation = cur.node.startsWith("A_") ? cityToTrain.get(curCity) : cityToBus.get(curCity);
+            if (otherStation != null && !otherStation.equals(cur.node)) {
+                tryRelax(otherStation, cur.arrivalTime, cur.totalCost, cur.hops, cur, null, pq, allPaths, criteria);
+            }
+        }
+
+        // 2. POLASCI iz trenutne stanice
+        List<TransportDataGenerator.Departure> available = depsFromStation.getOrDefault(cur.node, Collections.emptyList());
+
+        for (TransportDataGenerator.Departure d : available) {
+            LocalDateTime depTime = LocalDateTime.parse(d.departureTime, FMT);
+            LocalDateTime needTime = cur.arrivalTime.plusMinutes(d.minTransferTime);
+
+            if (depTime.isBefore(needTime)) continue; // Ne možemo stići
+
+            LocalDateTime arrTime = LocalDateTime.parse(d.arrivalTime, FMT);
+            int newCost = cur.totalCost + d.price;
+            int newHops = cur.hops + 1;
+
+            String targetCity = d.to;
+            String targetBus = cityToBus.get(targetCity);
+            String targetTrain = cityToTrain.get(targetCity);
+
+            // Dodaj oba čvora ciljnog grada (autobuska i željeznička)
+            if (targetBus != null) {
+                tryRelax(targetBus, arrTime, newCost, newHops, cur, d, pq, allPaths, criteria);
+            }
+            if (targetTrain != null) {
+                tryRelax(targetTrain, arrTime, newCost, newHops, cur, d, pq, allPaths, criteria);
+            }
+        }
+    }
+
+    /**
+     * "Opuštena" relaksacija koja dozvoljava više putanja do istog čvora.
+     * Ne odbacuje alternativne putanje prerano.
+     */
+    private void tryRelax(String node, LocalDateTime time, int cost, int hops,
+                          Label prev, TransportDataGenerator.Departure dep,
+                          PriorityQueue<Label> pq, Map<String, List<Label>> allPaths,
+                          Criteria criteria) {
+
+        Label newLabel = new Label(node, time, cost, hops, prev, dep);
+
+        // Provjeri da li već postoji bolja putanja
+        List<Label> existing = allPaths.get(node);
+        if (existing != null) {
+            // Ako postoji striktno bolja putanja po SVIM metrikama, preskoči
+            boolean dominated = false;
+            for (Label ex : existing) {
+                if (isDominated(newLabel, ex)) {
+                    dominated = true;
+                    break;
+                }
+            }
+            if (dominated) return;
+        }
+
+        // Dodaj novu labelu
+        allPaths.computeIfAbsent(node, k -> new ArrayList<>()).add(newLabel);
+        pq.add(newLabel);
+    }
+
+    /**
+     * Provjerava da li je newLabel dominirana od strane existing.
+     * Dominacija znači: existing je bolja ili jednaka po SVIM metrikama.
+     */
+    private boolean isDominated(Label newLabel, Label existing) {
+        return !existing.arrivalTime.isAfter(newLabel.arrivalTime) &&
+                existing.totalCost <= newLabel.totalCost &&
+                existing.hops <= newLabel.hops;
+    }
+
+    // ========== LABEL I REKONSTRUKCIJA ==========
+    private static class Label {
+        final String node;
+        final LocalDateTime arrivalTime;
+        final int totalCost;
+        final int hops;
+        final Label prev;
+        final TransportDataGenerator.Departure usedDeparture;
+
+        Label(String node, LocalDateTime arrivalTime, int totalCost, int hops,
+              Label prev, TransportDataGenerator.Departure usedDeparture) {
+            this.node = node;
+            this.arrivalTime = arrivalTime;
+            this.totalCost = totalCost;
+            this.hops = hops;
+            this.prev = prev;
+            this.usedDeparture = usedDeparture;
+        }
+    }
+
+    private List<RouteStep> reconstruct(Label goal) {
+        List<RouteStep> out = new ArrayList<>();
+        Label cur = goal;
+        while (cur != null) {
+            if (cur.usedDeparture != null) {
+                TransportDataGenerator.Departure d = cur.usedDeparture;
+                RouteStep rs = new RouteStep();
+                rs.type = d.type;
+                rs.from = d.from;
+                rs.to = d.to;
+                rs.departureTime = d.departureTime;
+                rs.arrivalTime = d.arrivalTime;
+                rs.duration = d.duration;
+                rs.price = d.price;
+                rs.minTransferTime = d.minTransferTime;
+                out.add(rs);
+            }
+            cur = cur.prev;
+        }
+        Collections.reverse(out);
+        return out;
     }
 }
