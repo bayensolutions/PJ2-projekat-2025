@@ -8,12 +8,7 @@ import java.util.*;
 
 /**
  * Pronalazi optimalne rute između gradova koristeći modifikovani Dijkstra algoritam.
- *
- * KLJUČNE IZMJENE:
- * 1. Startno vrijeme = najranije vrijeme u JSON-u
- * 2. Instant transfer između stanica istog grada (A ↔ Z)
- * 3. "Opuštena" relaksacija - čuva više putanja da bi uvijek našao rutu
- * 4. Multi-criteria optimizacija: ako ruta postoji, uvijek će biti pronađena
+ * Podržava single-route i multi-route pretragu (top N ruta).
  */
 public class SimpleRouteFinder {
 
@@ -76,6 +71,9 @@ public class SimpleRouteFinder {
         System.out.println("[DEBUG] Najranije vrijeme u JSON-u: " + earliestTime.format(FMT));
     }
 
+    /**
+     * Pronalazi najbolju rutu prema kriterijumu.
+     */
     public List<RouteStep> findRoute(String startCity, String endCity, Criteria criteria) {
         if (!cityToBus.containsKey(startCity) || !cityToBus.containsKey(endCity)) {
             System.err.println("[ERROR] Nepoznat grad: " + startCity + " ili " + endCity);
@@ -85,16 +83,103 @@ public class SimpleRouteFinder {
         System.out.printf("=== POKRENUT SimpleRouteFinder ===%nStart: %s | Cilj: %s | Kriterijum: %s%n",
                 startCity, endCity, criteria);
 
-        // ✅ KLJUČNA IZMJENA: koristi unified algoritam sa različitim metrikama
         return findRouteUnified(startCity, endCity, criteria);
     }
 
     /**
-     * Unified Dijkstra algoritam koji radi za sve kriterijume.
-     * Koristi "visited" set da spreči beskonačne cikluse.
+     * Pronalazi TOP N ruta (do 5) prema datom kriterijumu.
+     */
+    public List<List<RouteStep>> findTopRoutes(String startCity, String endCity, Criteria criteria, int maxRoutes) {
+        if (!cityToBus.containsKey(startCity) || !cityToBus.containsKey(endCity)) {
+            System.err.println("[ERROR] Nepoznat grad: " + startCity + " ili " + endCity);
+            return Collections.emptyList();
+        }
+
+        System.out.printf("=== TOP %d RUTA ===%nStart: %s | Cilj: %s | Kriterijum: %s%n",
+                maxRoutes, startCity, endCity, criteria);
+
+        return findTopRoutesUnified(startCity, endCity, criteria, maxRoutes);
+    }
+
+    /**
+     * Unified Dijkstra algoritam za pronalaženje TOP N ruta.
+     */
+    private List<List<RouteStep>> findTopRoutesUnified(String startCity, String endCity, Criteria criteria, int maxRoutes) {
+        Map<String, List<Label>> allPaths = new HashMap<>();
+        PriorityQueue<Label> pq = createPriorityQueue(criteria);
+        Set<String> visited = new HashSet<>();
+
+        String startBus = cityToBus.get(startCity);
+        String startTrain = cityToTrain.get(startCity);
+        String endBus = cityToBus.get(endCity);
+        String endTrain = cityToTrain.get(endCity);
+
+        Label lBus = new Label(startBus, earliestTime, 0, 0, null, null);
+        Label lTrain = new Label(startTrain, earliestTime, 0, 0, null, null);
+
+        pq.add(lBus);
+        pq.add(lTrain);
+        allPaths.computeIfAbsent(startBus, k -> new ArrayList<>()).add(lBus);
+        allPaths.computeIfAbsent(startTrain, k -> new ArrayList<>()).add(lTrain);
+
+        List<Label> solutions = new ArrayList<>();
+
+        while (!pq.isEmpty() && solutions.size() < maxRoutes * 3) {
+            Label cur = pq.poll();
+
+            String visitKey = cur.node + "_" + cur.arrivalTime.toString();
+            if (visited.contains(visitKey)) continue;
+            visited.add(visitKey);
+
+            if (cur.node.equals(endBus) || cur.node.equals(endTrain)) {
+                solutions.add(cur);
+                if (solutions.size() >= maxRoutes * 2) break;
+                continue;
+            }
+
+            expandNode(cur, pq, allPaths, criteria);
+        }
+
+        solutions.sort((a, b) -> {
+            switch (criteria) {
+                case FASTEST: return a.arrivalTime.compareTo(b.arrivalTime);
+                case CHEAPEST: return Integer.compare(a.totalCost, b.totalCost);
+                case MIN_TRANSFER: return Integer.compare(a.hops, b.hops);
+                default: return 0;
+            }
+        });
+
+        List<List<RouteStep>> result = new ArrayList<>();
+        Set<String> uniqueRoutes = new HashSet<>();
+
+        for (Label sol : solutions) {
+            if (result.size() >= maxRoutes) break;
+
+            List<RouteStep> route = reconstruct(sol);
+            String routeSignature = createRouteSignature(route);
+
+            if (!uniqueRoutes.contains(routeSignature)) {
+                uniqueRoutes.add(routeSignature);
+                result.add(route);
+            }
+        }
+
+        System.out.println("✅ Pronađeno " + result.size() + " različitih ruta.");
+        return result;
+    }
+
+    private String createRouteSignature(List<RouteStep> route) {
+        StringBuilder sb = new StringBuilder();
+        for (RouteStep step : route) {
+            sb.append(step.from).append("->").append(step.to).append("|");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Unified Dijkstra algoritam za pronalaženje najbolje rute.
      */
     private List<RouteStep> findRouteUnified(String startCity, String endCity, Criteria criteria) {
-        // Čuva najbolje putanje do svakog čvora (može biti više ako imaju različite kompromise)
         Map<String, List<Label>> allPaths = new HashMap<>();
         PriorityQueue<Label> pq = createPriorityQueue(criteria);
         Set<String> visited = new HashSet<>();
@@ -117,21 +202,17 @@ public class SimpleRouteFinder {
         while (!pq.isEmpty()) {
             Label cur = pq.poll();
 
-            // Ako smo već posjetili ovaj čvor sa boljom metrikama, preskoči
             String visitKey = cur.node + "_" + cur.arrivalTime.toString();
             if (visited.contains(visitKey)) continue;
             visited.add(visitKey);
 
-            // Provjeri da li smo stigli do cilja
             if (cur.node.equals(endBus) || cur.node.equals(endTrain)) {
                 if (bestSolution == null || isBetter(cur, bestSolution, criteria)) {
                     bestSolution = cur;
                 }
-                // Nastavi pretragu za bolje alternative (ne prekidaj odmah)
                 continue;
             }
 
-            // Ekspanzija: transfer + polasci
             expandNode(cur, pq, allPaths, criteria);
         }
 
@@ -172,7 +253,6 @@ public class SimpleRouteFinder {
     private void expandNode(Label cur, PriorityQueue<Label> pq, Map<String, List<Label>> allPaths, Criteria criteria) {
         String curCity = stationToCity.get(cur.node);
 
-        // 1. INSTANT TRANSFER između stanica istog grada
         if (curCity != null) {
             String otherStation = cur.node.startsWith("A_") ? cityToTrain.get(curCity) : cityToBus.get(curCity);
             if (otherStation != null && !otherStation.equals(cur.node)) {
@@ -180,14 +260,13 @@ public class SimpleRouteFinder {
             }
         }
 
-        // 2. POLASCI iz trenutne stanice
         List<TransportDataGenerator.Departure> available = depsFromStation.getOrDefault(cur.node, Collections.emptyList());
 
         for (TransportDataGenerator.Departure d : available) {
             LocalDateTime depTime = LocalDateTime.parse(d.departureTime, FMT);
             LocalDateTime needTime = cur.arrivalTime.plusMinutes(d.minTransferTime);
 
-            if (depTime.isBefore(needTime)) continue; // Ne možemo stići
+            if (depTime.isBefore(needTime)) continue;
 
             LocalDateTime arrTime = LocalDateTime.parse(d.arrivalTime, FMT);
             int newCost = cur.totalCost + d.price;
@@ -197,7 +276,6 @@ public class SimpleRouteFinder {
             String targetBus = cityToBus.get(targetCity);
             String targetTrain = cityToTrain.get(targetCity);
 
-            // Dodaj oba čvora ciljnog grada (autobuska i željeznička)
             if (targetBus != null) {
                 tryRelax(targetBus, arrTime, newCost, newHops, cur, d, pq, allPaths, criteria);
             }
@@ -207,10 +285,6 @@ public class SimpleRouteFinder {
         }
     }
 
-    /**
-     * "Opuštena" relaksacija koja dozvoljava više putanja do istog čvora.
-     * Ne odbacuje alternativne putanje prerano.
-     */
     private void tryRelax(String node, LocalDateTime time, int cost, int hops,
                           Label prev, TransportDataGenerator.Departure dep,
                           PriorityQueue<Label> pq, Map<String, List<Label>> allPaths,
@@ -218,10 +292,8 @@ public class SimpleRouteFinder {
 
         Label newLabel = new Label(node, time, cost, hops, prev, dep);
 
-        // Provjeri da li već postoji bolja putanja
         List<Label> existing = allPaths.get(node);
         if (existing != null) {
-            // Ako postoji striktno bolja putanja po SVIM metrikama, preskoči
             boolean dominated = false;
             for (Label ex : existing) {
                 if (isDominated(newLabel, ex)) {
@@ -232,22 +304,16 @@ public class SimpleRouteFinder {
             if (dominated) return;
         }
 
-        // Dodaj novu labelu
         allPaths.computeIfAbsent(node, k -> new ArrayList<>()).add(newLabel);
         pq.add(newLabel);
     }
 
-    /**
-     * Provjerava da li je newLabel dominirana od strane existing.
-     * Dominacija znači: existing je bolja ili jednaka po SVIM metrikama.
-     */
     private boolean isDominated(Label newLabel, Label existing) {
         return !existing.arrivalTime.isAfter(newLabel.arrivalTime) &&
                 existing.totalCost <= newLabel.totalCost &&
                 existing.hops <= newLabel.hops;
     }
 
-    // ========== LABEL I REKONSTRUKCIJA ==========
     private static class Label {
         final String node;
         final LocalDateTime arrivalTime;

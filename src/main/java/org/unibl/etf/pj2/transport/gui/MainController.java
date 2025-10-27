@@ -3,15 +3,17 @@ package org.unibl.etf.pj2.transport.gui;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
 import javafx.fxml.Initializable;
+import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.*;
 import javafx.scene.paint.Color;
+import javafx.stage.Stage;
 import org.unibl.etf.pj2.transport.generator.TransportDataGenerator;
 import org.unibl.etf.pj2.transport.util.SimpleRouteFinder;
 import org.unibl.etf.pj2.transport.util.TransportDataLoader;
-import org.unibl.etf.pj2.transport.util.TransportGraph;
 
 import java.net.URL;
 import java.util.List;
@@ -35,8 +37,6 @@ public class MainController implements Initializable {
     private String selectedStartCity = null;
     private String selectedDestinationCity = null;
 
-    private TransportGraph graph; // ➕ Dodato polje grafa
-
     @Override
     public void initialize(URL location, ResourceBundle resources) {
         try {
@@ -51,9 +51,6 @@ public class MainController implements Initializable {
             System.out.println("✅ Učitani podaci iz JSON-a:");
             System.out.println("Broj gradova: " + transportData.stations.size());
             System.out.println("Broj polazaka: " + transportData.departures.size());
-
-            // ➕ Kreiraj graf odmah nakon učitavanja
-            graph = new TransportGraph(transportData.stations, transportData.departures);
 
             ObservableList<String> cities = FXCollections.observableArrayList();
             for (TransportDataGenerator.Station s : transportData.stations)
@@ -113,7 +110,6 @@ public class MainController implements Initializable {
         System.out.println("Cilj: " + selectedDestinationCity);
         System.out.println("Kriterijum: " + selectedCriteria);
 
-        // ✅ Novi konstruktor (sa grafom)
         SimpleRouteFinder finder = new SimpleRouteFinder(
                 transportData.stations,
                 transportData.departures
@@ -136,6 +132,60 @@ public class MainController implements Initializable {
         ObservableList<SimpleRouteFinder.RouteStep> tableData = FXCollections.observableArrayList(route);
         routeTable.setItems(tableData);
         redrawMapWithHighlights(route);
+    }
+
+    @FXML
+    private void showAdditionalRoutes() {
+        if (selectedStartCity == null || selectedDestinationCity == null) {
+            showAlert("Greška", "Morate odabrati početni i krajnji grad.");
+            return;
+        }
+
+        try {
+            SimpleRouteFinder finder = new SimpleRouteFinder(
+                    transportData.stations,
+                    transportData.departures
+            );
+
+            List<List<SimpleRouteFinder.RouteStep>> topRoutes = finder.findTopRoutes(
+                    selectedStartCity,
+                    selectedDestinationCity,
+                    selectedCriteria,
+                    5 // Top 5 ruta
+            );
+
+            if (topRoutes.isEmpty()) {
+                showAlert("Nema ruta", "Nije pronađena nijedna alternativna ruta.");
+                return;
+            }
+
+            // Otvori novi prozor sa top rutama
+            FXMLLoader loader = new FXMLLoader(getClass().getResource("top-routes-view.fxml"));
+            Scene scene = new Scene(loader.load(), 700, 600);
+
+            TopRoutesController controller = loader.getController();
+            controller.setRoutes(topRoutes);
+
+            Stage stage = new Stage();
+            stage.setTitle("Top 5 ruta - " + selectedStartCity + " → " + selectedDestinationCity);
+            stage.setScene(scene);
+            stage.show();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            showAlert("Greška", "Greška prilikom otvaranja prozora sa rutama: " + e.getMessage());
+        }
+    }
+
+    @FXML
+    private void buyTicket() {
+        if (routeTable.getItems().isEmpty()) {
+            showAlert("Greška", "Nije odabrana nijedna ruta za kupovinu.");
+            return;
+        }
+
+        // TODO: Implementirati generisanje računa
+        showAlert("Informacija", "Kupovina karte biće implementirana kasnije.");
     }
 
     private void drawMap(int rows, int cols, String[][] countryMap) {
@@ -162,7 +212,9 @@ public class MainController implements Initializable {
         }
     }
 
-    private void redrawMapWithHighlights() { redrawMapWithHighlights(null); }
+    private void redrawMapWithHighlights() {
+        redrawMapWithHighlights(null);
+    }
 
     private void redrawMapWithHighlights(List<SimpleRouteFinder.RouteStep> route) {
         if (transportData == null || transportData.countryMap == null) return;
@@ -234,14 +286,6 @@ public class MainController implements Initializable {
                 return s.city;
         }
         return null;
-    }
-
-    @FXML private void showAdditionalRoutes() {
-        showAlert("Informacija", "Prikaz dodatnih ruta biće implementiran kasnije.");
-    }
-
-    @FXML private void buyTicket() {
-        showAlert("Informacija", "Kupovina karte biće implementirana kasnije.");
     }
 
     private void showAlert(String title, String msg) {
