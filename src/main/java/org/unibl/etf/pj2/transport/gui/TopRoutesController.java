@@ -5,7 +5,9 @@ import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
 import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
 import org.unibl.etf.pj2.transport.model.TopRoutesResult;
+import org.unibl.etf.pj2.transport.util.InvoiceManager;
 import org.unibl.etf.pj2.transport.util.SimpleRouteFinder;
 
 import java.util.List;
@@ -91,20 +93,30 @@ public class TopRoutesController {
     }
 
     /**
-     * Kupovina karte (za sada samo placeholder).
+     * Kupovina karte: generiše račun, prikaže potvrdu i zatvori ovaj prozor.
      */
     private void buyTicket(TopRoutesResult route) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("Kupovina karte");
-        alert.setHeaderText(null);
-        alert.setContentText(String.format(
-                "Kupili ste kartu!\n\nCijena: %d KM\nTrajanje: %s\nPresjedanja: %d",
-                route.getTotalPrice(),
-                route.getFormattedDuration(),
-                route.getTransfers()
-        ));
-        alert.showAndWait();
+        try {
+            // Generiši račun za izabranu rutu
+            InvoiceManager.generateInvoice(route.getRoute());
 
-        // TODO: Implementiraj generisanje računa
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("Kupovina karte");
+            alert.setHeaderText(null);
+            alert.setContentText("Karta kupljena!\nRačun je sačuvan u folderu \"racuni\".");
+            alert.showAndWait();
+
+            // Zatvori prozor sa top rutama (glavni ostaje otvoren)
+            Stage stage = (Stage) routesList.getScene().getWindow();
+            stage.close();
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Alert alert = new Alert(Alert.AlertType.ERROR);
+            alert.setTitle("Greška");
+            alert.setHeaderText(null);
+            alert.setContentText("Nešto je pošlo po zlu pri generisanju računa!");
+            alert.showAndWait();
+        }
     }
 }

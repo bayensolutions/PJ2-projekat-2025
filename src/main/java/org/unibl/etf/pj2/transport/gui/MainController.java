@@ -12,6 +12,7 @@ import javafx.scene.control.*;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import org.unibl.etf.pj2.transport.generator.TransportDataGenerator;
+import org.unibl.etf.pj2.transport.util.InvoiceManager;
 import org.unibl.etf.pj2.transport.util.SimpleRouteFinder;
 import org.unibl.etf.pj2.transport.util.TransportDataLoader;
 
@@ -33,7 +34,9 @@ public class MainController implements Initializable {
     @FXML private TableColumn<SimpleRouteFinder.RouteStep, Integer> colPrice;
 
     private TransportDataGenerator.TransportData transportData;
-    private SimpleRouteFinder.Criteria selectedCriteria = SimpleRouteFinder.Criteria.CHEAPEST;
+
+    // ❗ više nema default vrijednosti — mora se izabrati u UI
+    private SimpleRouteFinder.Criteria selectedCriteria = null;
     private String selectedStartCity = null;
     private String selectedDestinationCity = null;
 
@@ -63,13 +66,22 @@ public class MainController implements Initializable {
             comboCriteria.setItems(FXCollections.observableArrayList(
                     "Najjeftinije", "Najbrže", "Najmanje presjedanja"
             ));
+            // ➕ Jasna poruka u placeholderu i bez početne selekcije
+            comboCriteria.getSelectionModel().clearSelection();
+            comboCriteria.setValue(null);
+            comboCriteria.setPromptText("Odaberite kriterijum");
 
             comboCriteria.setOnAction(e -> {
                 String val = comboCriteria.getValue();
-                if (val == null) return;
-                if (val.equals("Najjeftinije")) selectedCriteria = SimpleRouteFinder.Criteria.CHEAPEST;
-                else if (val.equals("Najbrže")) selectedCriteria = SimpleRouteFinder.Criteria.FASTEST;
-                else selectedCriteria = SimpleRouteFinder.Criteria.MIN_TRANSFER;
+                if (val == null) {
+                    selectedCriteria = null;
+                } else if (val.equals("Najjeftinije")) {
+                    selectedCriteria = SimpleRouteFinder.Criteria.CHEAPEST;
+                } else if (val.equals("Najbrže")) {
+                    selectedCriteria = SimpleRouteFinder.Criteria.FASTEST;
+                } else {
+                    selectedCriteria = SimpleRouteFinder.Criteria.MIN_TRANSFER;
+                }
             });
 
             comboStart.setOnAction(e -> {
@@ -100,8 +112,9 @@ public class MainController implements Initializable {
 
     @FXML
     private void findRoute() {
-        if (selectedStartCity == null || selectedDestinationCity == null) {
-            showAlert("Greška", "Morate odabrati početni i krajnji grad.");
+        // ❗ Blokiraj pretragu dok nisu popunjena SVA tri polja
+        if (selectedStartCity == null || selectedDestinationCity == null || selectedCriteria == null) {
+            showAlert("Greška", "Morate odabrati početni grad, krajnji grad i kriterijum.");
             return;
         }
 
@@ -136,8 +149,9 @@ public class MainController implements Initializable {
 
     @FXML
     private void showAdditionalRoutes() {
-        if (selectedStartCity == null || selectedDestinationCity == null) {
-            showAlert("Greška", "Morate odabrati početni i krajnji grad.");
+        // ❗ Blokiraj otvaranje Top ruta dok nisu popunjena SVA tri polja
+        if (selectedStartCity == null || selectedDestinationCity == null || selectedCriteria == null) {
+            showAlert("Greška", "Morate odabrati početni grad, krajnji grad i kriterijum.");
             return;
         }
 
@@ -179,13 +193,19 @@ public class MainController implements Initializable {
 
     @FXML
     private void buyTicket() {
-        if (routeTable.getItems().isEmpty()) {
+        List<SimpleRouteFinder.RouteStep> route = routeTable.getItems();
+        if (route.isEmpty()) {
             showAlert("Greška", "Nije odabrana nijedna ruta za kupovinu.");
             return;
         }
 
-        // TODO: Implementirati generisanje računa
-        showAlert("Informacija", "Kupovina karte biće implementirana kasnije.");
+        try {
+            InvoiceManager.generateInvoice(route);
+            showAlert("Uspjeh", "Karta kupljena! Račun je sačuvan u folderu 'racuni'.");
+        } catch (Exception e) {
+            e.printStackTrace();
+            showAlert("Greška", "Nešto je pošlo po zlu pri generisanju računa!");
+        }
     }
 
     private void drawMap(int rows, int cols, String[][] countryMap) {

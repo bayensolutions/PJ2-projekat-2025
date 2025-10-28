@@ -1,10 +1,10 @@
 package org.unibl.etf.pj2.transport.gui;
 
-import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
+import javafx.scene.control.Label;
+import javafx.event.ActionEvent;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
-import javafx.scene.control.Label;
 import javafx.stage.Stage;
 import org.unibl.etf.pj2.transport.Config;
 
@@ -22,16 +22,18 @@ public class HelloController {
 
     @FXML
     public void initialize() {
-        // Ovdje možeš ubaciti učitavanje statistike o prodaji karata (ako imaš InvoiceManager)
         Path racuniDir = Path.of(Config.getInvoicesDir());
         long brojKarata = 0;
         double prihod = 0;
+
         try {
             if (Files.exists(racuniDir)) {
+                // Broj prodatih karata
                 brojKarata = Files.list(racuniDir)
                         .filter(f -> f.toString().endsWith(".txt"))
                         .count();
 
+                // Saberi sve "Ukupna cijena: 3002 KM" redove
                 prihod = Files.list(racuniDir)
                         .filter(f -> f.toString().endsWith(".txt"))
                         .flatMap(p -> {
@@ -44,7 +46,11 @@ public class HelloController {
                         .filter(line -> line.startsWith("Ukupna cijena:"))
                         .mapToDouble(line -> {
                             try {
-                                return Double.parseDouble(line.split(":")[1].trim());
+                                return Double.parseDouble(
+                                        line.replace("Ukupna cijena:", "")
+                                                .replace("KM", "")
+                                                .trim()
+                                );
                             } catch (Exception e) {
                                 return 0;
                             }
@@ -66,8 +72,6 @@ public class HelloController {
         stage.setScene(scene);
         stage.show();
 
-        // Zatvori početni prozor
-        Stage currentStage = (Stage) ((javafx.scene.Node) event.getSource()).getScene().getWindow();
-        currentStage.close();
+        ((Stage) ((javafx.scene.Node) event.getSource()).getScene().getWindow()).close();
     }
 }

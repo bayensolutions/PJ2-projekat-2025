@@ -103,11 +103,15 @@ public class SimpleRouteFinder {
 
     /**
      * Unified Dijkstra algoritam za pronalaženje TOP N ruta.
+     * Koristi RELAXED visited tracking da pronađe više alternativa.
      */
     private List<List<RouteStep>> findTopRoutesUnified(String startCity, String endCity, Criteria criteria, int maxRoutes) {
         Map<String, List<Label>> allPaths = new HashMap<>();
         PriorityQueue<Label> pq = createPriorityQueue(criteria);
-        Set<String> visited = new HashSet<>();
+
+        // ✅ KLJUČNA IZMJENA: visited prati samo broj posjeta, ne blokira sve
+        Map<String, Integer> visitCount = new HashMap<>();
+        int MAX_VISITS_PER_NODE = 5; // Dozvoli do 5 prolaza kroz istu stanicu
 
         String startBus = cityToBus.get(startCity);
         String startTrain = cityToTrain.get(startCity);
@@ -123,23 +127,30 @@ public class SimpleRouteFinder {
         allPaths.computeIfAbsent(startTrain, k -> new ArrayList<>()).add(lTrain);
 
         List<Label> solutions = new ArrayList<>();
+        int searchLimit = maxRoutes * 20; // Traži još više kandidata
+        int processedNodes = 0;
 
-        while (!pq.isEmpty() && solutions.size() < maxRoutes * 3) {
+        while (!pq.isEmpty() && processedNodes < searchLimit) {
             Label cur = pq.poll();
+            processedNodes++;
 
-            String visitKey = cur.node + "_" + cur.arrivalTime.toString();
-            if (visited.contains(visitKey)) continue;
-            visited.add(visitKey);
+            // Provjeri broj posjeta ovog čvora
+            int visits = visitCount.getOrDefault(cur.node, 0);
+            if (visits >= MAX_VISITS_PER_NODE) continue;
+            visitCount.put(cur.node, visits + 1);
 
             if (cur.node.equals(endBus) || cur.node.equals(endTrain)) {
                 solutions.add(cur);
-                if (solutions.size() >= maxRoutes * 2) break;
+                // Ne zaustavljaj se, nastavi tražiti još alternative
                 continue;
             }
 
             expandNode(cur, pq, allPaths, criteria);
         }
 
+        System.out.println("[DEBUG] Obrađeno " + processedNodes + " čvorova, pronađeno " + solutions.size() + " putanja do cilja.");
+
+        // Sortiraj po kriterijumu
         solutions.sort((a, b) -> {
             switch (criteria) {
                 case FASTEST: return a.arrivalTime.compareTo(b.arrivalTime);
@@ -149,30 +160,60 @@ public class SimpleRouteFinder {
             }
         });
 
+        // Filtriraj duplikate i vrati top N
         List<List<RouteStep>> result = new ArrayList<>();
-        Set<String> uniqueRoutes = new HashSet<>();
+        Set<String> uniqueSignatures = new HashSet<>();
 
         for (Label sol : solutions) {
             if (result.size() >= maxRoutes) break;
 
             List<RouteStep> route = reconstruct(sol);
-            String routeSignature = createRouteSignature(route);
+            if (route.isEmpty()) continue;
 
-            if (!uniqueRoutes.contains(routeSignature)) {
-                uniqueRoutes.add(routeSignature);
+            String signature = createRouteSignature(route);
+
+            if (!uniqueSignatures.contains(signature)) {
+                uniqueSignatures.add(signature);
                 result.add(route);
+
+                // Debug ispis
+                int totalCost = route.stream().mapToInt(r -> r.price).sum();
+                int totalTime = route.stream().mapToInt(r -> r.duration).sum();
+                System.out.println(String.format("[DEBUG] Ruta #%d: %d KM, %d min, %d segmenata",
+                        result.size(), totalCost, totalTime, route.size()));
             }
         }
 
-        System.out.println("✅ Pronađeno " + result.size() + " različitih ruta.");
+        System.out.println("✅ Vraćam " + result.size() + " različitih ruta.");
         return result;
     }
 
+    /**
+     * Kreira jedinstveni potpis rute.
+     * Za direktne rute (1 segment), koristi tačno vrijeme polaska.
+     * Za složene rute (više segmenata), koristi sekvencu stanica + ukupnu cijenu.
+     */
     private String createRouteSignature(List<RouteStep> route) {
+        if (route.isEmpty()) return "EMPTY";
+
         StringBuilder sb = new StringBuilder();
+
+        // Sequence koraka
         for (RouteStep step : route) {
             sb.append(step.from).append("->").append(step.to).append("|");
         }
+
+        // Za direktne rute (samo 1 segment), dodaj tačno vrijeme da razlikuješ sve varijante
+        if (route.size() == 1) {
+            sb.append("@").append(route.get(0).departureTime);
+        } else {
+            // Za složene rute, dodaj vremenski slot (da razlikuješ jutarnje/večernje varijante)
+            String firstTime = route.get(0).departureTime;
+            int hour = Integer.parseInt(firstTime.substring(11, 13));
+            String timeSlot = (hour < 6) ? "NIGHT" : (hour < 12) ? "MORNING" : (hour < 18) ? "AFTERNOON" : "EVENING";
+            sb.append("@").append(timeSlot);
+        }
+
         return sb.toString();
     }
 
