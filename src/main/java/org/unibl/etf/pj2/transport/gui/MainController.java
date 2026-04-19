@@ -208,6 +208,32 @@ public class MainController implements Initializable {
         }
     }
 
+    @FXML
+    private void showGraphVisualization() {
+        try {
+            FXMLLoader loader = new FXMLLoader(getClass().getResource("graph-view.fxml"));
+            Scene scene = new Scene(loader.load(), 1000, 800);
+
+            GraphVisualizationController controller = loader.getController();
+            controller.setTransportData(transportData);
+
+            // Ako postoji odabrana ruta, prikaži je na grafu
+            List<SimpleRouteFinder.RouteStep> currentRoute = routeTable.getItems();
+            if (!currentRoute.isEmpty()) {
+                controller.setRoute(currentRoute);
+            }
+
+            Stage stage = new Stage();
+            stage.setTitle("Vizualizacija transportnog grafa");
+            stage.setScene(scene);
+            stage.show();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            showAlert("Greška", "Greška prilikom otvaranja grafa: " + e.getMessage());
+        }
+    }
+
     private void drawMap(int rows, int cols, String[][] countryMap) {
         if (countryMap == null) return;
         GraphicsContext gc = mapCanvas.getGraphicsContext2D();

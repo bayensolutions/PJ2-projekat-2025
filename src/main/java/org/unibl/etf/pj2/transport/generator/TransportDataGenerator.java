@@ -10,7 +10,7 @@ public class TransportDataGenerator {
 
     private int rows;
     private int columns;
-    private static final int DEPARTURES_PER_STATION = 20;
+    private static final int DEPARTURES_PER_STATION = 2000;
     private static final Random random = new Random();
 
     public TransportDataGenerator(int rows, int columns) {

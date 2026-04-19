@@ -1,0 +1,7 @@
+Relacija: Z_0_0 → G_0_1
+Polazak: 2025-10-27T23:00:00
+Dolazak: 2025-10-28T00:02:00
+Trajanje: 1h 2min
+Ukupna cijena: 131 KM
+Broj presjedanja: 0
+Datum kupovine: 2025-10-28 19:04:52

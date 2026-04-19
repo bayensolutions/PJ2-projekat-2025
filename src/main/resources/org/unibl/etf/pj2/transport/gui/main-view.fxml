@@ -35,6 +35,7 @@
 
     <HBox spacing="10">
         <Button text="Show Additional Routes" onAction="#showAdditionalRoutes"/>
+        <Button text="Show Graph" onAction="#showGraphVisualization" style="-fx-background-color: #4CAF50; -fx-text-fill: white;"/>
         <Button text="Buy Ticket" onAction="#buyTicket"/>
     </HBox>
 </VBox>
